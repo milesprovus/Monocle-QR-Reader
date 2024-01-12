@@ -25,6 +25,7 @@ while data := camera.read(bluetooth.max_length()):
 
 async def get_image():
     async with Monocle() as m:
+        await m.send_command(f"import display \ntext = display.Text('Capturing...', 100, 0, display.WHITE, justify=display.TOP_LEFT) \ndisplay.show(text)")
         await m.send_command(remote_script)
         return await m.get_all_data()
 
