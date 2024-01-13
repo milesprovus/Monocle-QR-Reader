@@ -2,43 +2,53 @@ import asyncio
 import io
 import PIL.Image as Image
 import time
-from brilliant import Monocle
+from brilliant import *
 import binascii
 import cv2
 import webbrowser
 from urllib.parse import urlparse
 
 remote_script = '''
-import bluetooth, camera, time, led
-camera.capture()
-time.sleep_ms(100)
-while data := camera.read(bluetooth.max_length()):
-    led.on(led.GREEN)
-    while True:
-        try:
-            bluetooth.send(data)
-        except OSError:
-            continue
-        break
+import bluetooth, camera, time, led, touch, display
+text = display.Text('Waiting...', 100, 0, display.WHITE, justify=display.TOP_LEFT)
+display.show(text)
+def trigger_capture(button):
+    len = bluetooth.max_length()
+    text = display.Text('Capturing...', 100, 0, display.WHITE, justify=display.TOP_LEFT)
+    display.show(text)
+    camera.capture()
+    time.sleep_ms(100)
+    while data := camera.read(bluetooth.max_length() - 4):
+        led.on(led.GREEN)
+        while True:
+            try:
+                bluetooth.send((b"img:" + data)[:len])
+            except OSError:
+                continue
+            break
     led.off(led.GREEN)
+    bluetooth.send(b'end:')
+    done = display.Text('Done', 100, 0, display.WHITE, justify=display.TOP_LEFT)
+    display.show(done)
+touch.callback(touch.EITHER, trigger_capture)
 '''
+
+
 
 async def get_image():
     async with Monocle() as m:
-        await m.send_command(f"import display \ntext = display.Text('Capturing...', 100, 0, display.WHITE, justify=display.TOP_LEFT) \ndisplay.show(text)")
         await m.send_command(remote_script)
-        return await m.get_all_data()
-
+        await ev.wait()
+        data = await m.get_all_data()
+        return data
+            
+        
 
 async def detect():
     image = cv2.imread('output.jpg')
-
-        # Create a QR code detector object
     detector = cv2.QRCodeDetector()
-
-        # Detect and decode the QR code
     data, vertices_array, _ = detector.detectAndDecode(image)
-
+    
     if data:
         print("QR Code Data:")
         print(data)
@@ -58,19 +68,20 @@ async def check(data):
     except ValueError:
         return False
 
-def main():
-    data = asyncio.run(get_image())
-    print(data)
-    img = Image.open(io.BytesIO(data))
-    jpgImg = img.convert('RGB')
-    jpgImg.save('output.jpg')
-    qr_data = asyncio.run(detect())
-    checkImg = asyncio.run(check(qr_data))
-    if checkImg:
-        webbrowser.open(qr_data)
-        qr_data = urlparse(qr_data).netloc
-        asyncio.run(display(qr_data))
-    else:
-        asyncio.run(display(qr_data))
-        
-main()
+async def main():
+    while True:
+        data = await get_image()
+        img =  Image.open(io.BytesIO(data))
+        jpgImg = img.convert('RGB')
+        jpgImg.save('output.jpg')
+        qr_data = await detect()
+        checkImg = await check(qr_data)
+        if checkImg:
+            webbrowser.open(qr_data)
+            qr_data = urlparse(qr_data).netloc
+            await display(qr_data)
+        else:
+            await display(qr_data)
+        ev.clear()
+
+asyncio.run(main())

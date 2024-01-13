@@ -13,7 +13,7 @@ from bleak.backends.device import BLEDevice
 from bleak.backends.scanner import AdvertisementData
 from bleak.uuids import register_uuids
 
-
+ev = asyncio.Event()
 class Monocle:
     UART_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
     UART_RX_CHAR_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
@@ -22,7 +22,7 @@ class Monocle:
     DATA_SERVICE_UUID = "e5700001-7bac-429a-b4ce-57ff900f479d"
     DATA_RX_CHAR_UUID = "e5700002-7bac-429a-b4ce-57ff900f479d"
     DATA_TX_CHAR_UUID = "e5700003-7bac-429a-b4ce-57ff900f479d"
-
+    
     def __init__(self):
         register_uuids({
             self.DATA_SERVICE_UUID: "Monocle Data Serivce",
@@ -55,6 +55,7 @@ class Monocle:
             await self.client.disconnect()
         except asyncio.exceptions.CancelledError:
             pass
+        return True
 
     def log(self, msg):
         if "DEBUG" in os.environ:
@@ -75,10 +76,15 @@ class Monocle:
     def handle_uart_rx(self, _:BleakGATTCharacteristic, data:bytearray):
         self.log(f"handle_uart_rx: {data}")
         self.uart_rx_buf.extend(data)
-
+            
     def handle_data_rx(self, _:BleakGATTCharacteristic, data:bytearray):
-        self.log(f"handle_data_rx: {data}")
-        self.data_rx_buf.extend(data)
+        match data[0:4]:
+            case b'img:':
+                self.data_rx_buf.extend(data[4:])
+            case b'end:':
+                ev.set()
+            case other:
+                self.err(f'unknown command {data[0:4]}')    
 
     async def get_char_uart(self):
         while len(self.uart_rx_buf) == 0:
@@ -168,3 +174,4 @@ class Monocle:
         await self.client.write_gatt_char(self.uart_rx_char, b"\x01 \x04")
         while await self.get_line_uart(delim=b"\r\n\x04") != b">OK":
             pass
+        
